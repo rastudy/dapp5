@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" lang="en">
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.2.7-rc.0/web3.min.js"></script>
+    <style>
+        @keyframes Neutral {
+            0% {
+                background-position: 100% 50%
+            }
+
+            50% {
+                background-position: 75% 50%
+            }
+
+            100% {
+                background-position: 100% 50%
+            }
+        }
+
+        @keyframes Good {
+            0% {
+                background-position: 50% 50%
+            }
+
+            50% {
+                background-position: 75% 50%
+            }
+
+            100% {
+                background-position: 50% 50%
+            }
+        }
+
+        @keyframes Bad {
+            0% {
+                background-position: 0% 50%
+            }
+
+            50% {
+                background-position: 25% 50%
+            }
+
+            100% {
+                background-position: 0% 50%
+            }
+        }
+
+        body {
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            background: linear-gradient(270deg, #ffffff, #2ad4be, #30e67c, #d42a63, #8f0e39);
+            background-size: 1600% 1600%;
+            animation: Neutral 30s ease infinite;
+        }
+
+        button {
+            text-align: center;
+            margin: auto;
+            padding: 20px 50px;
+            font-size: 2em;
+            border-radius: 10px;
+            background-color: rgb(53, 204, 133);
+            color: white;
+            border-style: solid;
+            border-width: 2px;
+            border-color: rgb(59, 187, 134);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        // helper var for animated background
+        let dynStyle = document.createElement('style');
+        dynStyle.type = "text/css";
+        document.head.appendChild(dynStyle);
+        let queue = [];
+
+        // helper function for animated background
+        async function goto(pos, anim) {
+            let resolve;
+            let promise = new Promise((_resolve) => resolve = _resolve);
+            queue.push(promise);
+
+            if (queue.length > 1) {
+                await queue[queue.length - 2];
+            }
+
+            console.log("goto");
+            if (dynStyle.sheet.rules.length > 0) dynStyle.sheet.removeRule();
+
+            let body = window.getComputedStyle(document.body);
+            dynStyle.sheet.insertRule(`
+            @keyframes temp {
+                from {
+                    background-position: ${body.backgroundPositionX} 50%; 
+                }
+                to {
+                    background-position: ${pos} 50%
+                }
+            }
+            `);
+            document.body.style.animationDuration = "2s";
+            document.body.style.animationName = "temp";
+            document.body.style.animationIterationCount = "1";
+            document.body.style.backgroundPosition = `${pos} 50%`;
+
+            setTimeout(() => {
+                document.body.style.animationName = anim;
+                document.body.style.removeProperty("animation-iteration-count");
+                document.body.style.removeProperty("animation-duration");
+                document.body.style.removeProperty("background-position");
+                dynStyle.sheet.removeRule();
+                queue.shift();
+                resolve();
+            }, 2000);
+        }
+
+        /// the only important function ///
+        async function go() {
+            // revert background to neutral
+            // disable button (as per MetaMask docs)
+            // use button for status information
+            goto("100%", "Neutral");
+            let button = document.getElementsByTagName("button")[0];
+            const text = button.innerText;
+            button.disabled = true;
+            button.innerText = "Looking for MetaMask";
+
+            // check if MetaMask successfully injected itself
+            if (!window.ethereum) {
+                alert("Could not detect MetaMask!", document.title);
+                button.disabled = false;
+                button.innerText = text;
+                goto("0%", "Bad");
+                return;
+            }
+
+            // create web3 instance from MetaMask provider
+            const web3 = new Web3(window.ethereum);
+
+            button.innerText = "Checking chain";
+
+            // change chain if required
+            let id = await web3.eth.getChainId();
+            if (id !== 3) { // if current chain is not Ropsten testnet
+                // prompt to change chain
+                let res = confirm("You are currently not on the Ropsten testnet. Switch to Ropsten testnet and reload the page?", document.title);
+                // if rejected: change background, reset button
+                if (!res) {
+                    button.innerText = text;
+                    button.disabled = false;
+                    goto("0%", "Bad");
+                    return;
+                }
+
+                // switch chain
+                await ethereum.request({
+                    method: "wallet_switchEthereumChain",
+                    params: [{ chainId: '0x3' }]
+                });
+
+                // reload page (as per MetaMask docs)
+                window.location.reload();
+            }
+
+            // change background, reset button
+            goto("50%", "Good");
+            button.innerText = text;
+            button.disabled = false;
+
+            // return block height
+            alert("The current block height on the Ropsten testnet is " + await web3.eth.getBlockNumber());
+        }
+    </script>
+    <button onclick="go()">Get block height of Ropsten testnet</button>
+</body>
+
+</html>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" lang="en">
+    <title>EX5 - Transfer 10 FT</title>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.2.7-rc.0/web3.min.js"></script>
+    <style>
+        @keyframes Neutral {
+            0% { background-position: 100% 50% }
+            50% { background-position: 75% 50% } 
+            100% { background-position: 100% 50% }
+        }
+
+        @keyframes Good {
+            0% { background-position: 50% 50% }
+            50% { background-position: 75% 50% } 
+            100% { background-position: 50% 50% }
+        }
+
+        @keyframes Bad {
+            0% { background-position: 0% 50% }
+            50% { background-position: 25% 50% } 
+            100% { background-position: 0% 50% }
+        }
+
+        body {
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            background: linear-gradient(270deg, #ffffff, #2ad4be, #30e67c, #d42a63, #8f0e39);
+            background-size: 1600% 1600%;
+            animation: Neutral 30s ease infinite;
+        }
+
+        button {
+            text-align: center;
+            margin: auto;
+            padding: 20px 50px;
+            font-size: 2em;
+            border-radius: 10px;
+            background-color: rgb(53, 204, 133);
+            color: white;
+            border-style: solid;
+            border-width: 2px;
+            border-color: rgb(59, 187, 134);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        // helper var for animated background
+        let dynStyle = document.createElement('style');
+        dynStyle.type = "text/css";
+        document.head.appendChild(dynStyle);
+        let queue = [];
+
+        // helper function for animated background
+        async function goto(pos, anim) {
+            let resolve;
+            let promise = new Promise((_resolve) => resolve = _resolve);
+            queue.push(promise);
+
+            if (queue.length > 1) {
+                await queue[queue.length - 2];
+            }
+
+            console.log("goto");
+            if (dynStyle.sheet.rules.length > 0) dynStyle.sheet.removeRule();
+
+            let body = window.getComputedStyle(document.body);
+            dynStyle.sheet.insertRule(`
+            @keyframes temp {
+                from {
+                    background-position: ${body.backgroundPositionX} 50%; 
+                }
+                to {
+                    background-position: ${pos} 50%
+                }
+            }
+            `);
+            document.body.style.animationDuration = "2s";
+            document.body.style.animationName = "temp";
+            document.body.style.animationIterationCount = "1";
+            document.body.style.backgroundPosition = `${pos} 50%`;
+
+            setTimeout(() => {
+                document.body.style.animationName = anim;
+                document.body.style.removeProperty("animation-iteration-count");
+                document.body.style.removeProperty("animation-duration");
+                document.body.style.removeProperty("background-position");
+                dynStyle.sheet.removeRule();
+                queue.shift();
+                resolve();
+            }, 2000);
+        }
+
+        /// the only important function ///
+        async function go() {
+            // revert background to neutral
+            // disable button (as per MetaMask docs)
+            // use button for status information
+            goto("100%", "Neutral");
+            let button = document.getElementsByTagName("button")[0];
+            const text = button.innerText;
+            button.disabled = true;
+            button.innerText = "Looking for MetaMask";
+
+            // check if MetaMask successfully injected itself
+            if (!window.ethereum) {
+                alert("Could not detect MetaMask!", document.title);
+                button.disabled = false;
+                button.innerText = text;
+                goto("0%", "Bad");
+                return;
+            }
+
+            // authenticate user using MetaMask to get access to address
+            button.innerText = "Connecting to MetaMask";
+            let promise = window.ethereum.enable();
+            let failed = false;
+            // user rejected request (most likely)
+            promise.catch((ex) => {
+                failed = true;
+                alert("Failed to connnect to MetaMask!", document.title);
+                button.innerText = text;
+                button.disabled = false;
+                goto("0%", "Bad");
+            });
+
+            await promise;
+            if (failed) return;
+
+            const web3 = new Web3(window.ethereum);
+
+            button.innerText = "Checking chain";
+            // change chain if required
+            let id = await web3.eth.getChainId();
+            if (id !== 3) { // if current chain is not Ropsten testnet
+                // prompt to change chain
+                let res = confirm("You are currently not on the Ropsten testnet. Switch to Ropsten testnet and reload the page?", document.title);
+                // if rejected: chnge background, reset button
+                if (!res) {
+                    button.innerText = text;
+                    button.disabled = false;
+                    goto("0%", "Bad");
+                    return;
+                }
+
+                // switch chain
+                await ethereum.request({
+                    method: "wallet_switchEthereumChain",
+                    params: [{ chainId: '0x3' }]
+                });
+
+                // reload page (as per MetaMask docs)
+                window.location.reload();
+            }
+
+            button.innerText = "Getting account";
+
+            let accounts = await web3.eth.getAccounts();
+            console.log(accounts);
+
+            button.innerText = "Building transaction";
+
+            // create contract for transfer function data
+            const aContract = "0xc5a8e715274e31ce4223adfabe1ff454a2ceef38";
+            let contract = new web3.eth.Contract([{
+                type: "function",
+                name: "transfer",
+                constant: false,
+                payable: false,
+                stateMutability: "nonpayable",
+                inputs: [{
+                    name: "recipient",
+                    type: "address"
+                }, {
+                    name: "amount",
+                    type: "uint256"
+                }],
+                outputs: [{
+                    name: "result",
+                    type: "bool"
+                }]
+            }], aContract, { from: accounts[0] });
+
+            // get other required data
+            let count = await web3.eth.getTransactionCount(accounts[0]);
+            let data = contract.methods.transfer("0x15433DA387451F9dE4565280C85506CB71aF9376", web3.utils.toHex(1e19)).encodeABI();
+            let gasEstimate = await web3.eth.estimateGas({ from: accounts[0], to: aContract, data });
+
+            // create raw transaction
+            let rawTx = {
+                from: accounts[0],
+                to: aContract,
+                data,
+                nonce: "0x" + count.toString(16),
+                gasPrice: await web3.eth.getGasPrice(),
+                value: "0x0",
+                gasLimit: gasEstimate,
+                chainId: 3
+            };
+
+            button.innerText = "Sending transaction";
+
+            // prompt user to sign transaction
+            web3.eth.sendTransaction(rawTx).then((res) => {
+                goto("50%", "Good");
+                button.innerText = text;
+                button.disabled = false;
+
+                // success: prompt user to open etherscan to view transaction
+                let open = confirm(`The transfer was successful! View on etherscan?`, document.title);
+                if (open) window.open("https://ropsten.etherscan.io/tx/" + res.transactionHash, "_blank");
+            }).catch((ex) => {
+                goto("0%", "Bad");
+                button.innerText = text;
+                button.disabled = false;
+                console.error(ex);
+
+                // failure: return error
+                alert(`The transaction failed! ` + ex.message, document.title);
+            });
+        }
+    </script>
+    <button onclick="go()">Send 10 FT</button>
+</body>
+
+</html>
